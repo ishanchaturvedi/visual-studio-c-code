@@ -1,0 +1,113 @@
+rm(list = ls())
+gc()
+#Need to change as per data time zone
+Sys.setenv(TZ="Asia/Tokyo") #will change according to which country we are considering
+
+library(data.table)
+#Read data from hard disk using fread as it is much faster than read.csv - the resulting data would be in data.table type
+StocksData <- fread("C:/Users/IshanC/Desktop/CVBCRB/TPX100_constminvol_10d_0.01.csv", header=TRUE, sep=",", stringsAsFactors=FALSE)
+#StocksData <- fread("C:/Users/IshanC/Desktop/test2.csv", header=TRUE, sep=",", stringsAsFactors=FALSE)
+#StocksData <- fread("C:/Users/IshanC/Desktop/test.csv", header=TRUE, sep=",", stringsAsFactors=FALSE)
+
+#Since fread has been used above to read the file, it is data.table type - need to convert it to data.frame
+StocksData <- as.data.frame(StocksData)
+
+#Above data had an extra "Index" column which is being deleted here
+StocksData <- StocksData[,-1]
+head(StocksData)
+
+#colnames(StocksData) <- c("Index","Symbols","DateTime","Open","High","Low","Close","Volume")
+colnames(StocksData) <- c("Symbols","DateTime","Open","High","Low","Close","Volume")
+nrow(StocksData)
+head(StocksData)
+
+#Remove rows with any missing values
+StocksData <- na.omit(StocksData)
+#row names will not get updated with na.omit so need to re-number them
+row.names(StocksData) <- (1:nrow(StocksData)) 
+nrow(StocksData)
+
+#Remove extra part of Stock's name keeping only the number. We need it as we will only pass NumericVectors in Rcpp
+#http://stackoverflow.com/questions/24773737/r-fastest-way-to-extract-all-substrings-contained-between-two-substrings
+StocksData$Symbols <- as.numeric(regmatches(StocksData$Symbols, gregexpr('(?<=REUTERS_JAPAN_MONTHLY::).*?(?=.T)', StocksData$Symbols, perl=T)))
+
+###########################################################################################################
+###Creating a vector with Today's date and taking only the Time's from the original data
+###Note that the DateTime column should be character type and not POSIXct###
+###########################################################################################################
+#Convert the character type data to POSIXct type. Also need to give format of input character type.
+#DateTime1 <- as.POSIXct(StocksData$DateTime, format="%Y/%m/%d %H:%M:%S", tz = "Asia/Tokyo") #Convert the character DateTime in POSIX (input format is given by : format="..."). Note that the format has to be changed according to data otherwise this would not work.
+DateTime1 <- as.POSIXct(StocksData$DateTime, format="%d-%m-%Y %H:%M", tz = "Asia/Tokyo") #Convert the character DateTime in POSIX (input format is given by : format="..."). Note that the format has to be changed according to data otherwise this would not work.
+head(DateTime1)
+tail(DateTime1)
+#Convert the POSIXct type data to character type retaining only the portion ("%H:%M:%S") given in format option
+DateTime2 <- strftime(DateTime1, format="%H:%M:%S", tz = "Asia/Tokyo") #Just extract the Time part (output format is given by : format="%H:%M:%S") from POSIX and convert to character type
+head(DateTime2)
+tail(DateTime2)
+#Convert the character type data to POSIXct format. Since the data contains only the Time and no Date, automatically today's date will be attached to it. Also need to give format of input character ("%H:%M:%S")
+DateTime3 <- as.POSIXct(DateTime2, format="%H:%M:%S", tz = "Asia/Tokyo") #Convert the character Time into POSIX (input format is given by : format="%H:%M:%S"). The result will automatically have today's Date with these Times
+head(DateTime3)
+tail(DateTime3)
+
+#Creating a vector with Today's date and 9:00:00 AM from the original data
+BOD <- as.POSIXct(rep("09:00:00", length(DateTime3)), format="%H:%M:%S",tz = "Asia/Tokyo")
+#Creating a column with Today's date and 15:30:00 AM from the original data
+EOD <- as.POSIXct(rep("15:30:00", length(DateTime3)), format="%H:%M:%S", tz = "Asia/Tokyo")
+
+#Creating columns Time_since_BOD and Time_till_EOD in original data
+StocksData$Time_since_BOD <- difftime(DateTime3, BOD, units = "mins")
+StocksData$Time_till_EOD <- difftime(EOD, DateTime3, units = "mins")
+
+nrow(StocksData)
+head(StocksData)
+tail(StocksData)
+
+#Remove all observations before BOD and after EOD (thus keeping only Day session data)
+StocksData <- StocksData[(StocksData$Time_since_BOD >= 0),]
+StocksData <- StocksData[(StocksData$Time_till_EOD >= 0),]
+nrow(StocksData)
+
+head(StocksData)
+tail(StocksData)
+
+#Convert original character column DateTime to POSIXct - have to give proper input format 
+#StocksData$DateTime <- as.POSIXct(StocksData$DateTime, format = "%Y/%m/%d %H:%M:%S", tz = "Asia/Tokyo")
+#StocksData$DateTime <- as.POSIXct(StocksData$DateTime, format = "%Y/%m/%d %H:%M:%S", tz = "Asia/Tokyo")
+StocksData$DateTime <- as.POSIXct(StocksData$DateTime, format = "%d-%m-%Y %H:%M", tz = "Asia/Tokyo")
+head(StocksData)
+tail(StocksData)
+
+#COnverting to numeric as it is much faster than Date. We need it as we will only pass NumericVectors in Rcpp
+StocksData$DateTimeNum <- as.numeric(StocksData$DateTime) #Will give number of seconds since the origin which is 1970-01-01 in R
+head(StocksData)
+tail(StocksData)
+
+#Just checking if POSIXct data has been converted to numeric correctly or not
+#https://stat.ethz.ch/R-manual/R-devel/library/base/html/as.POSIXlt.html
+#StocksData$DateTime3 <- as.POSIXct(StocksData$DateTimeNum, origin = "1970-01-01", tz = "Asia/Tokyo")
+#head(StocksData)
+
+
+#Save data with all the changes as RDS to compress it and then it can be read faster
+#saveRDS(StocksData, "C:/Users/IshanC/Desktop/CVBCRB/TPX100_constminvol_10d_0.01.rds")
+write.table(StocksData, append = FALSE, file="C:/Users/IshanC/Desktop/StocksDatatest2.csv", sep = ",",  row.names=FALSE)
+saveRDS(StocksData, "C:/Users/IshanC/Desktop/test2.rds")
+
+#To read back the rds data
+StocksData <- readRDS("C:/Users/IshanC/Desktop/CVBCRB/TPX100_constminvol_10d_0.01.rds")
+#StocksData <- readRDS("C:/Users/IshanC/Desktop/test.rds")
+head(StocksData)
+tail(StocksData)
+
+#To create start and end row numbers for each stock in the data
+start <- which(StockData[,1] != c(0,StockData[-nrow(StockData),1]))
+end <- start - 1
+end <- c(end[-1], nrow(StockData))
+
+#x1 <- x[start[1]:end[1],]
+#x2 <- x[start[2]:end[2],]
+#x3 <- x[start[3]:end[3],]
+#xn_2 <- x[start[length(start)-2]:end[length(start)-2],]
+#xn_1 <- x[start[length(start)-1]:end[length(start)-1],]
+#xn <- x[start[length(start)]:end[length(start)],]
+
