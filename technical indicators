@@ -1,0 +1,1332 @@
+//#include <Rcpp.h>
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <algorithm>   
+#include <iostream>     // std::cout
+#include <vector>       // std::vector
+#include <list>
+#include <cmath>        /* log to base exp */
+#include <math.h>       /* exp */
+#include <time.h>
+
+// [[Rcpp::depends(RcppArmadillo)]]
+#include <RcppArmadillo.h> //if you include this then don't include Rcpp as it automatically includes Rcpp. It would give error otherwise.
+
+using namespace Rcpp;
+using namespace arma;
+using namespace std;
+
+//https://google.github.io/styleguide/cppguide.html
+
+//Test 3 ideas every day on the various securities
+//Run indicators, patterns, strategy, filters as separate functions - call them in Trade generation loop 
+//if they are taking time then they can be readily incorporated in the loop itself by making some changes to the code
+//But always start with coding them as separate functions
+//This way you will have a library of maintainable indicators/patterns/strategies/filters/
+
+//Market Breadth or Market Internal indicators : http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:introduction_to_market_indicators
+//Try filters and rules from here : http://www.stockdisciplines.com/stock-scanners-filters-screeners
+//Dan Zanger is a famous trader : http://chartpattern.com/10_golden_rules.html
+//Patterns/Indicators used by Linda Raschke Hedge Fund : http://www.lbrgroup.com/index.asp?page=FAQ
+
+//Add external C++ header in Rcpp/C++ code : http://stackoverflow.com/questions/14268245/using-header-h-files-with-cpp-files-in-an-r-package-with-rcpp?rq=1
+//http://stackoverflow.com/questions/13995266/using-3rd-party-header-files-with-rcpp
+//https://cran.rstudio.com/web/packages/Rcpp/vignettes/Rcpp-attributes.pdf
+//http://stackoverflow.com/questions/23654323/using-c-in-r-compling-error-rcpparmadillo-h-no-such-file-or-directory
+
+//MLPACK, ARMADILLO, RCPPARMADILLO, DLIB
+
+//http://gallery.rcpp.org/articles/parsing-datetimes/
+
+//Coding price patterns :
+//https://www.r-bloggers.com/classical-technical-patterns/ - Using empirical rules
+//https://systematicinvestor.wordpress.com/2012/01/20/time-series-matching-with-dynamic-time-warping/ - Using dynamic time warping
+//http://quant.stackexchange.com/questions/1332/how-can-i-quantitatively-test-the-validity-of-momentum-indicators
+//Read how Bulkowski codes/researches patterns in excel
+//Read  "Evidence-Based Technical Analysis" by David Aronson. pg 151-161
+
+//Create Filter to clean data : could be based on Michael Rechenthin thesis, naiim award winning paper, hilbert transform, renko charts
+
+//Slope indicator : http://stackoverflow.com/questions/18939869/how-to-get-the-slope-of-a-linear-regression-line-using-c
+//http://www.marketgeeks.com/day-trading-with-short-term-price-patterns/ - Slope being used here
+
+//Rolling window with Rcpp : https://cran.r-project.org/web/packages/RcppRoll/RcppRoll.pdf
+
+//Read : https://www.aqr.com/library/journal-articles/time-series-momentum
+//Read : https://www.aqr.com/library/journal-articles/which-trend-is-your-friend
+//Read : Financial Asset Returns, Direction of Change forecasting paper by Christofferson and Diebold
+//Read : Ch 5 and Ch 6 from Michael Rechenthin thesis
+//Read : Plan.txt
+//Read : Godotfinance working papers
+
+//Rcpp::plugins(cpp11)]
+
+// Below is a simple example of exporting a C++ function to R. You can
+// source this function into an R session using the Rcpp::sourceCpp 
+// function (or via the Source button on the editor toolbar)
+
+// For more on using Rcpp click the Help button on the editor toolbar
+
+//See <algorithm> header file for various algorithms
+//http://www.drdobbs.com/stl-algorithms-vs-hand-written-loops/184401446
+//http://www.cplusplus.com/reference/algorithm/
+//inlining can be done for functions which are between 3-8 lines long and don't have for loop and switch statements - they will not have overhead
+
+//Examples : 
+//Trend : MA, MACD, Parabolic SAR, Put-call ratio
+//Momentum : RSI, Stochastics, CCI, MFI, Intraday momentum index, Stochastic momentum index
+//Volatility : Bollinger Bands, ATR, Std. Dev., Keltner Channels
+//Volume : Chaikin Oscillator, OBV, ROCV
+
+//TODO : Do research on identifying support and resistance levels, price patterns(price action - they are the only leading indicators), Alligator and Profitunity trading system - said to be very good by some people
+//TODO : Write code and strategy in a way that it can be used in other codes as well easily
+//TODO : Code Bulkowski's patterns, Candlestick patterns and Western Chart patterns
+//TODO : Code some Market Internals indicators
+//TODO : Code indicators from Alvarezquanttrading like ConnorsRSI, HiLo Market timing indicator, Cumulative RSI, TRIN etc
+//TODO : Code n-bar rules
+//TODO : ATR with and without Gap adjustment
+//TODO : Slope indicator, linear regression indicator
+//TODO : Put stop loss, Trailing stop loss and profit target logic
+//TODO : Working strategies : Pivot points, second/third time tested support/resistance levels, volume as confirmation in stocks, RSI contra, zig-zag indicator, swing support and resistance levels
+//TODO : Exit - Signal, EOD, SL, Profit Target, High Volume point for exit, Support and Resistance as Exit, Exit in terms of return per unit time, If return being made very fast and suddenly hits a plateau then exit 
+//TODO : Support and resistance levels - VPOC, Prev day Close, Prev day Open, Pivot point, Round numbers, Indices levels on stocks, max/min of positive/negative DMA regions, speed of bounce from support/resistance level is high - maybe it is important, zigzag indicator based levels, swing high and swing low (based on percentage)
+//TODO : Support and resistance : Different ways to identify Support and Resistance levels : http://www.investopedia.com/articles/technical/02/060402.asp
+
+//Strategies to code : SMA, EMA, FRAMA, RSI, CCI, Supertrend, ATR, ROC, MACD, n-bar rules
+//Bulkowski patterns - How to code the pattern : http://thepatternsite.com/HTFStudy.html, http://thepatternsite.com/SmallPatterns.html , http://thepatternsite.com/id75.html, http://thepatternsite.com/id74.html,  http://thepatternsite.com/Trendiness.html, 
+//Short term trading strategies that work - RSI-2, TRIN etc
+//IBS
+//Linda Raschke : 2-period ROC modeling, Taylor modeling, and volatility breakout methods -- http://lindaraschke.net/research/
+//VIX/VXV ratio (godotfinance working papers)
+
+//Working strategies : Pivot points, second/third time tested support/resistance levels, volume as confirmation in stocks, RSI contra, zig-zag indicaotr, swing support and resistance levels
+//Different ways to identify Support and Resistance levels : http://www.investopedia.com/articles/technical/02/060402.asp
+
+//Faster C++ code :
+//https://people.cs.clemson.edu/~dhouse/courses/405/papers/optimize.pdf
+//https://www.quora.com/How-can-I-reduce-execution-time-on-my-C-C++-code
+//Use loops within function instead of function within loops to avoid repeatred calling of function - this has overhead
+//Use reference (pointers) for passing containers (including vectors) to functions
+//Use inline functions where possible as it has no overhead
+//Preinitialized/Preallocated vector is one of the fastest containers - reserve preallocates memory but not initialize
+//http://en.cppreference.com/w/cpp/types/numeric_limits/quiet_NaN and http://en.cppreference.com/w/cpp/types/numeric_limits/signaling_NaN
+
+//Advantage of calling functions like SMA on full data is that overhead is avoided by repeated calling of function within main()
+//Also, if multiple such functions are there, they can be run parallely in separate threads and then joined within main()
+
+//Since it is better to pass containers by reference to functions to reduce overhead, if we are using functions in separate threads, 
+//then normal pass by reference will not work - you need to use std::ref for this
+//http://stackoverflow.com/questions/8250932/what-is-the-overhead-of-passing-a-reference
+//http://stackoverflow.com/questions/5116756/difference-between-pointer-and-reference-as-thread-parameter
+//http://stackoverflow.com/questions/8299545/why-does-passing-object-reference-arguments-to-thread-function-fails-to-compile
+//http://jakascorner.com/blog/2016/01/arguments.html
+//http://www.bogotobogo.com/cplusplus/multithreaded4_cplusplus11.php
+
+/*** R
+Sys.setenv(TZ="Asia/Tokyo") #will change according to which country we are considering
+*/
+
+
+// [[Rcpp::export]]
+NumericVector SMA(NumericVector price_vector, int period){
+  
+//http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_averages
+//Output : from subscript period - 1 where period is function argument 
+
+   int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+	//http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+	if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+	NumericVector sma(price_vector_size);
+
+for (int i = period - 1; i < price_vector_size; ++i)
+	{
+		double sum = 0;
+		for (int j = i - (period - 1); j <= i  ; ++j)
+		{
+			sum = sum + price_vector[j];
+		}
+
+		sma[i] = sum / period;
+	}
+
+return sma;
+}
+
+
+// [[Rcpp::export]]
+NumericVector EMA(NumericVector price_vector, int period){
+
+//http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_averages
+//Output : from subscript period - 1 where period is function argument 
+
+    int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+	if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  NumericVector ema(price_vector_size);
+  
+  double sum_for_sma = 0;
+  
+  for(int i = 0; i < period; i++)
+  {
+    sum_for_sma += price_vector[i];
+  }
+  
+  double sma = sum_for_sma/period;
+  ema[period-1] = sma;
+  
+  double multiplier = 2.0/(1 + period);
+
+	for (int i = period; i < price_vector_size; ++i)
+	{
+    ema[i] = multiplier * price_vector[i] + (1 - multiplier) * ema[i-1];
+	}
+
+return ema;
+}
+
+
+NumericVector RunningMax(NumericVector price_vector, int period){
+  
+  //Output : from subscript period - 1 where period is function argument 
+  
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+    
+  NumericVector run_max(price_vector_size);
+  
+  //cout<<endl<<"printing max elements"<<endl;
+    
+    for (int i = period - 1; i < price_vector_size; ++i)
+  {
+    //http://www.cplusplus.com/reference/algorithm/max_element/
+    run_max[i] = *std::max_element(price_vector.begin() + i - (period - 1), price_vector.begin() + i + 1);//note that the way max_element is defined, the second argument is the element just next to the end of range we want to get max from
+    //cout << "i = "<<i<<" "<<*(price_vector.begin() + i - (period - 1))<<" "<<*(price_vector.begin() + i + 1)<<" "<<run_max[i]<<endl;
+	}
+  
+  return run_max;
+}
+
+NumericVector RunningMin(NumericVector price_vector, int period){
+  
+  //Output : from subscript period - 1 where period is function argument 
+  
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+    
+  NumericVector run_min(price_vector_size);
+    
+  //cout<<endl<<"printing min elements"<<endl;
+  
+    for (int i = period - 1; i < price_vector_size; ++i)
+  {
+    //http://www.cplusplus.com/reference/algorithm/max_element/
+    run_min[i] = *std::min_element(price_vector.begin() + i - (period - 1), price_vector.begin() + i + 1);//note that the way min_element is defined, the second argument is the element just next to the end of range we want to get min from
+    //cout << "i = "<<i<<" "<<*(price_vector.begin() + i - (period - 1))<<" "<<*(price_vector.begin() + i + 1)<<" "<<run_min[i]<<endl;
+  }
+  return run_min;
+}
+
+
+// [[Rcpp::export]]
+NumericVector FRAMA(NumericVector price_vector, int period)
+{  
+//FRAMA is the best technical indicator according to : http://etfhq.com/blog/2010/05/25/best-technical-indicators/
+//FRAMA formula from : https://www.mql5.com/en/code/72 - the N2 in this description should be N2(i) = N(Length,i - Length) not N2(i) = N(Length,i + Length) as the future is not known (it would be look ahead bias at period i as we are considering i + Length periods at period i itself)
+//https://quantstrattrader.wordpress.com/2014/06/22/the-continuing-search-for-robust-momentum-indicators-the-fractal-adaptive-moving-average/
+
+//Output : from 
+
+   int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+  
+  if((period%2) != 0) {period -= 1;}
+
+ NumericVector N1(price_vector_size);
+ NumericVector N2(price_vector_size);
+ NumericVector N3(price_vector_size);
+ 
+ NumericVector run_maxN1 = RunningMax(price_vector, period/2);
+ NumericVector run_minN1 = RunningMin(price_vector, period/2);
+ //vector<double> run_maxN2 = RunningMax(price_vector, period/2);
+ //vector<double> run_minN2 = RunningMin(price_vector, period/2);
+ NumericVector run_maxN3 = RunningMax(price_vector, period);
+ NumericVector run_minN3 = RunningMin(price_vector, period);
+ 
+  //ofstream myfile;
+  //myfile.open ("C:/Users/IshanC/Desktop/IndicatorsTest/example.txt");
+ 
+   //myfile << "N1" << endl;
+   
+   for (int i = period - 1; i < price_vector_size; ++i)
+  {
+    N1[i] = (run_maxN1[i] - run_minN1[i])/(period/2);
+    //myfile << run_maxN1[i] << ":";
+    //myfile << run_minN1[i] << ":";
+    //myfile << N1[i] << " ";
+  }
+  
+  //myfile << "N2" << endl;
+  
+   for (int i = period - 1; i < price_vector_size; ++i)
+  {
+    N2[i] = (run_maxN1[i-(period/2)] - run_minN1[i-(period/2)])/(period/2);
+    //myfile << run_maxN1[i-(period/2)] << ":";
+    //myfile << run_minN1[i-(period/2)] << ":";
+    //myfile << N2[i] << " ";
+  }
+  
+  //myfile << "N3" << endl;
+    
+   for (int i = period - 1; i < price_vector_size; ++i)
+  {
+    N3[i] = (run_maxN3[i] - run_minN3[i])/(period);
+    //myfile << run_maxN3[i] << ":";
+    //myfile << run_minN3[i] << ":";
+    //myfile << N3[i] << " ";
+  }
+  
+   NumericVector D(price_vector_size); // fractal dimension
+   NumericVector A(price_vector_size); // exponential smoothing
+   NumericVector frama(price_vector_size); // frama
+   
+   frama[period - 2] = price_vector[period - 2];
+   
+   //myfile << "frama[period - 2]" << frama[period - 2] << endl;
+   
+   for (int i = period - 1; i < price_vector_size; ++i)
+  {
+    D[i] =  (log(N1[i] + N2[i]) - log(N3[i]))/log(2);
+    A[i] = exp(-4.6 * (D[i] - 1));
+    frama[i] = A[i] * price_vector[i] + (1 - A[i]) * frama[i-1];
+    //myfile << "D " << D[i] << ":" << "A " << A[i] << ":" << "frama " << frama[i] << endl;
+  }
+  
+  //myfile.close();
+  
+  return frama;
+}
+
+// [[Rcpp::export]]
+NumericVector RSI(NumericVector price_vector, int period)
+{
+  //Note that the RSI output will be populated from subscript [period] onwards and unlike SMA, EMA where it is from subscript [period-1]
+  //This is because calculation of U and D can start only from period as it represents a change
+  //https://en.wikipedia.org/wiki/Relative_strength_index#Calculation
+  //http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:relative_strength_index_rsi
+  
+  //https://www.tradingview.com/chart/CELG/EVXQPaR9-Larry-Connors-RSI-2-Trading-System-Surprising-Win-Rate/
+  
+  //Output : from subscript period where period is function argument 
+  
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+  
+  NumericVector U(price_vector_size);
+  NumericVector D(price_vector_size);
+  
+  U[0] = D[0] = 0;
+  
+   for (int i = 1; i < price_vector_size; ++i)
+  {
+    if(price_vector[i] > price_vector[i-1]){
+      U[i] = price_vector[i] - price_vector[i-1];
+      D[i] = 0;
+    } else if(price_vector[i] < price_vector[i-1]){
+      U[i] = 0;
+      D[i] = price_vector[i-1] - price_vector[i];
+    } else {
+      U[i] = 0;
+      D[i] = 0;
+    }
+  }
+  
+  //https://en.wikipedia.org/wiki/Moving_average#Modified_moving_average
+    NumericVector SMMA_U(price_vector_size);
+    NumericVector SMMA_D(price_vector_size);
+    NumericVector RS(price_vector_size);
+    NumericVector RSI(price_vector_size);
+            
+    double sum_for_SMMA_U = 0;
+    double sum_for_SMMA_D = 0;
+    
+     for(int i = 1; i <= period; ++i)
+    {
+      sum_for_SMMA_U += U[i];
+      sum_for_SMMA_D += D[i];
+    }
+    
+    SMMA_U[period] = sum_for_SMMA_U/period;
+    SMMA_D[period] = sum_for_SMMA_D/period;
+    RS[period] = SMMA_U[period]/SMMA_D[period];
+    RSI[period] = ((SMMA_D[period] == 0)?100:(100 - 100/(1 + RS[period])));
+    
+     for(int i = period+1; i < price_vector_size; ++i)
+    {
+      SMMA_U[i] = ((period-1)*SMMA_U[i-1] + U[i])/period;
+      SMMA_D[i] = ((period-1)*SMMA_D[i-1] + D[i])/period;
+      RS[i] = SMMA_U[i]/SMMA_D[i];
+      RSI[i] = ((SMMA_D[i] == 0)?100:(100 - 100/(1 + RS[i])));
+    }
+    
+    return RSI;
+}
+
+
+// [[Rcpp::export]]
+NumericVector RunningPercentile(NumericVector price_vector, double nth_fractional_percentile, int period)
+{ 
+  //This function is based on linear interpolation method : https://en.wikipedia.org/wiki/Percentile#The_Linear_Interpolation_Between_Closest_Ranks_method
+  //This function reprecents the prercentile function of MATLAB
+  //Its output is verified by example on wikipedia and example on : http://in.mathworks.com/help/stats/prctile.html
+  
+  //When repeated calculation of percentile is required - 
+  //Faster method could be using 2 heaps : http://stackoverflow.com/questions/3738349/fast-algorithm-for-repeated-calculation-of-percentile
+  //Example of median (50th percentile) using 2 heaps : http://www.geeksforgeeks.org/median-of-stream-of-integers-running-integers/
+  //Another approach (complete coded function) : http://systematicinvestor.github.io/Run-Quantile-Rcpp
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  //First sort the entire vector
+ // std::sort(price_vector.begin(), price_vector.end());
+  
+   NumericVector percentile(price_vector_size);
+   NumericVector period_window_vector(period);
+   NumericVector percent_rank_period_window_vector(period);
+   
+   //https://en.wikipedia.org/wiki/Percentile
+   //double rank = nth_fractional_percentile * period;
+   
+  // int int_rank = int(rank);
+ //  double frac_rank = rank - int_rank;
+   
+  // cout<<"rank : "<<rank<<" "<<"int_rank : "<<int_rank<<" "<<"frac_rank : "<<frac_rank<<endl;
+
+   for (int i = period - 1; i < price_vector_size; ++i)
+  {
+   period_window_vector.assign(price_vector.begin() + i - (period-1), price_vector.begin() + i + 1);
+   
+   //cout<<"period_window_vector"<<endl;
+    //for(int j = 0; j < period; ++j)
+   //{
+    //cout<<*(period_window_vector.begin()+j)<< " ";
+   //}
+   //cout<<endl;
+   std::sort(period_window_vector.begin(), period_window_vector.end());
+   //for(int j = 0; j < period; ++j){
+     //   cout<<*(period_window_vector.begin()+j)<< " ";
+   //}
+   //cout<<endl;
+   //cout<<period_window_vector[int_rank - 1];
+   //cout<<" ";
+   //cout<<period_window_vector[int_rank];
+   //cout<<endl;
+   //cout<<"percent_rank_period_window_vector"<<endl;
+   for(int j = 0; j < period; ++j)
+   {
+    percent_rank_period_window_vector[j] = (1/double(period))*((double(j)+1) - 0.5);
+    //percent_rank_period_window_vector[j] = (double(j) - 1)/(double(period) - 1);
+     //cout<<percent_rank_period_window_vector[j]<<" ";
+   }
+   //cout<<endl;
+   //cout<<"nth_fractional_percentile"<<nth_fractional_percentile<<endl;
+   
+   if(nth_fractional_percentile < percent_rank_period_window_vector[0]){percentile[i] = period_window_vector[0];}
+   else if(nth_fractional_percentile > percent_rank_period_window_vector[period-1]){percentile[i] = period_window_vector[period - 1];}
+   else {
+    for(int k = 0; k < period; ++k)
+   {
+     if(int(nth_fractional_percentile*100) == int(percent_rank_period_window_vector[k]*100)){
+       //cout<<"k"<<k<<" "<<"Entering equality"<<" "<<"period_window_vector[k]"<<period_window_vector[k];percentile[i] = period_window_vector[k];cout<<"percentile[i] "<<percentile[i]<<endl;
+       break;
+       } else if(nth_fractional_percentile < percent_rank_period_window_vector[k]){
+       //cout<<"k"<<k<<" "<<"Entering inequality";cout<<" period_window_vector[k-1] "<<period_window_vector[k-1]<<" period "<<period<<" period_window_vector[k] "<<period_window_vector[k]<< " percent_rank_period_window_vector[k] "<<percent_rank_period_window_vector[k]<<" percent_rank_period_window_vector[k-1] "<<percent_rank_period_window_vector[k-1]<<endl;
+       percentile[i] = period_window_vector[k-1] + (period*(period_window_vector[k] - period_window_vector[k-1])*(100*nth_fractional_percentile - 100*percent_rank_period_window_vector[k-1])/100);
+       break;
+     }
+   }
+   
+    //cout<<period_window_vector[int_rank - 1] + frac_rank*(period_window_vector[int_rank] - period_window_vector[int_rank - 1])<<endl;   
+      }
+       //cout<<"percentile[i"<<endl;
+       //cout<<percentile[i]<<endl;
+  }
+  //cout<<endl;
+ return percentile;
+}
+
+// [[Rcpp::export]]
+List fastLm(NumericVector yr, NumericMatrix Xr) {
+  //Default behavior is intercept = 0 so need to put an additional column of 1's in X to get intercept term
+  //Note that the first column in X should be x data points and second column in X should be the column of 1's.  
+  //https://en.wikipedia.org/wiki/Simple_linear_regression#Numerical_example - test on example here
+  //https://cran.rstudio.com/web/packages/Rcpp/vignettes/Rcpp-attributes.pdf - code taken from here
+  //http://stackoverflow.com/questions/20034737/rcpparmadillo-fastlm-results-differ-from-rs-lm-what-have-i-done-wrong
+  //By default, R's lm fits a model with an intercept even if the design matrix you pass does not include an initial column of ones. So you'll see the following are identical:
+  //lm(y ~ x - 1) - R's lm
+  //mylm(y, x) - Armadillo lm
+  //If you want the 'regular' model, you need to modify your design matrix to have a first column of all 1s:
+  //lm(y ~ x) - R's lm
+  //mylm(y, cbind(1, x)) - Armadillo lm
+int n = Xr.nrow(), k = Xr.ncol();
+arma::mat X(Xr.begin(), n, k, false);
+arma::colvec y(yr.begin(), yr.size(), false);
+arma::colvec coef = arma::solve(X, y);
+arma::colvec resid = y - X*coef;
+double sig2 = arma::as_scalar(arma::trans(resid)*resid/(n-k));
+arma::colvec stderrest = arma::sqrt(
+sig2 * arma::diagvec( arma::inv(arma::trans(X)*X)) );
+return List::create(Named("coefficients") = coef,
+Named("stderr") = stderrest);
+}
+
+// [[Rcpp::export]]
+List SlopeIndicator(NumericVector yr, NumericMatrix Xr) {
+  //Strategy where is is used : http://www.marketgeeks.com/day-trading-with-short-term-price-patterns/
+  List temp = fastLm(yr, Xr);
+  //Default behavior in fastLm is intercept = 0 so need to put an additional column of 1's in X to get intercept term
+  //Note that the first column in X should be x data points and second column in X should be the column of 1's. Only then temp[0] will give coefficient of x data points. 
+  NumericVector temp1 = temp[0];//subscript in C++ starts with 0
+  //cout<<temp1[0];
+  double Slope1 = temp1[0];//subscript in C++ starts with 0
+  int size = yr.size();
+  double y2 = yr[size - 1]; double y1 = yr[0]; double x2 = Xr[ size - 1]; double x1 = Xr[0];
+  double Slope2 = (y2 - y1)/(x2 - x1);
+  return List::create(Named("Slope as given by regression line (fitted through the whole series)") = Slope1, Named("Slope as given by slope formula (just considering beginning and end points of series)") = Slope2);
+}
+
+
+NumericVector SMA_CCI(NumericVector price_vector, int period)
+{    
+//http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_averages
+
+   int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+	if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+	NumericVector sma(price_vector_size);
+  double sum;
+  
+   for (int i = period - 1; i < price_vector_size; ++i)
+	{
+		sum = 0;
+		for (int j = i - (period - 1); j <= i  ; ++j)
+		{
+			sum = sum + price_vector[j];
+		}
+
+		sma[i] = sum / period;
+	}
+
+return sma;
+}
+
+NumericVector MAD_CCI(NumericVector price_vector, NumericVector sma_cci, int period)
+{    
+//http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_averages
+
+   int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+	NumericVector mad(price_vector_size);
+  double sum;
+
+  for (int i = period - 1; i < price_vector_size; ++i)
+  {
+		sum = 0;
+    //cout<<"i : "<<i<<" ";
+    //cout<<"sma_cci[i] : "<<sma_cci[i]<<" "<<endl;
+    
+		for (int j = i - (period - 1); j <= i  ; ++j)
+		{
+			sum = sum + fabs(price_vector[j] - sma_cci[i]); //fabs is float version of abs which is for int only
+      //cout<<"price_vector[j] : "<<price_vector[j]<<endl;
+		}
+    //cout<<"sum : "<<sum<<endl;
+
+		mad[i] = sum / period;
+    //cout<<"mad[i] : "<<mad[i]<<endl;
+	}
+  
+  return mad;
+}
+
+
+// [[Rcpp::export]]
+NumericVector CCI(NumericVector High_vector, NumericVector Low_vector, NumericVector Close_vector, int period)
+{
+  //http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:commodity_channel_index_cci
+  
+  int price_vector_size = High_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if ((High_vector.size() != Low_vector.size()) ||  (High_vector.size() != Close_vector.size()) || (Low_vector.size() != Close_vector.size())){ throw std::invalid_argument("the vectors should be of equal length"); } // the lengths should be equal
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+	NumericVector typical_price(price_vector_size);
+  NumericVector cci(price_vector_size);
+  
+  for(int i=0; i < price_vector_size; ++i) {
+   typical_price[i] = (High_vector[i] + Low_vector[i] + Close_vector[i])/3;
+  }
+  
+  NumericVector sma_cci = SMA_CCI(typical_price, period);
+  NumericVector mad_cci = MAD_CCI(typical_price, sma_cci, period);
+  
+  for(int i=period-1; i < price_vector_size; ++i) {
+   cci[i] = (typical_price[i] - sma_cci[i])/(0.015 * mad_cci[i]);
+  }
+  
+  return cci;
+}
+
+vector<double> EMA_MACD(vector<double> price_vector, int period)
+{    
+    //http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_average_convergence_divergence_macd
+    int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  vector<double> ema(price_vector_size);
+  
+  double sum_for_sma = 0;
+  
+  for(int i = 0; i < period; ++i)
+  {
+    sum_for_sma += price_vector[i];
+  }
+  
+  double sma = sum_for_sma/period;
+  ema[period-1] = sma;
+  
+  double multiplier = 2.0/(1 + period);
+
+	for (int i = period; i < price_vector_size; ++i)
+	{
+    ema[i] = multiplier * price_vector[i] + (1 - multiplier) * ema[i-1];
+	}
+
+return ema;
+}
+
+// [[Rcpp::export]]
+NumericVector MACD(vector<double> price_vector, int period_short, int period_long, int period_macd_line)
+{
+  //http://investexcel.net/how-to-calculate-macd-in-excel/
+  //http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_average_convergence_divergence_macd
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period_short > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  vector<double> macd_line(price_vector_size);
+  vector<double> ema_short_period = EMA_MACD(price_vector, period_short);
+  vector<double> ema_long_period = EMA_MACD(price_vector, period_long);
+  
+  //ofstream myfile;
+ // myfile.open ("C:/Users/IshanC/Desktop/IndicatorsTest/example.txt");
+  //myfile<<ema_short_period.size()<<" "<<ema_long_period.size()<<endl;
+
+  //myfile << "macd_line" << endl;
+  
+  for(int i = period_long - 1; i < price_vector_size; ++i)
+  {
+   macd_line[i] = ema_short_period[i] - ema_long_period[i];
+  }
+  
+  /*
+    for(int i = 0; i < price_vector_size; ++i)
+  {
+   myfile<<macd_line[i]<<" ";
+  }
+   myfile << endl;
+  */
+  
+  //Need to pass macd_line from the point where it is populated otherwise EMA function will start taking initial zeros and giving incorrect result : http://investexcel.net/how-to-calculate-macd-in-excel/
+  vector<double> macd_line_populated(macd_line.begin() + period_long - 1, macd_line.end());
+  //myfile << "macd_line_populated" << endl;
+  /*
+    for(int i = 0; i < macd_line_populated.size(); ++i)
+  {
+   myfile << macd_line_populated[i] << " ";
+  }
+   myfile << endl;
+   */
+  
+   vector<double> signal_line = EMA_MACD(macd_line_populated, period_macd_line);
+  // myfile << "signal_line_temp" << endl;
+  /*
+   for(int i = 0; i < signal_line.size(); ++i)
+  {
+    myfile << signal_line[i] << " ";
+  }
+   myfile << endl;
+   */
+   
+   //Need to add (period_long - 1) leading 0's to signal_line to bring it in phase with macd_line and to make it equal in size to price_vector
+  vector<double> leading_zeros_signal(period_long-1);
+
+  //http://www.cplusplus.com/reference/vector/vector/insert/
+  signal_line.insert(signal_line.begin(), leading_zeros_signal.begin(), leading_zeros_signal.end());
+  
+   //myfile << "signal_line" << endl;
+   /*
+   for(int i = 0; i < signal_line.size(); ++i)
+  {
+    myfile << signal_line[i] << " ";
+  }
+   myfile << endl;
+   */
+   
+   vector<double> signal(price_vector_size);
+    
+   for (int i = period_long + period_macd_line - 1; i < price_vector_size; ++i)
+	{
+    signal[i] = ((macd_line[i-1]<signal_line[i-1]) & (macd_line[i]>signal_line[i])) ? 1:(((macd_line[i-1]>signal_line[i-1]) & (macd_line[i]<signal_line[i])) ? -1:0);
+	}
+  
+  // myfile << "signal" << endl;
+  /*
+   for (int i = 0; i < price_vector_size; ++i)
+  {
+    myfile << signal[i] << " ";
+	}
+    myfile << endl;
+  */
+ return wrap(signal);
+}
+
+// [[Rcpp::export]]
+NumericVector ATR(NumericVector High_vector, NumericVector Low_vector, NumericVector Close_vector, int period){
+  
+  //http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:average_true_range_atr
+  
+  int price_vector_size = High_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  NumericVector tr(price_vector_size);
+  
+  tr[0] = fabs(High_vector[0] - Low_vector[0]);
+  
+   for (int i = 1; i < price_vector_size; ++i)
+  {
+    tr[i] = max(fabs(High_vector[i] - Low_vector[i]), max(fabs(High_vector[i] - Close_vector[i-1]), fabs(Low_vector[i] - Close_vector[i-1])));
+    //cout<<" "<<tr[i];
+	}
+  //cout<<endl;
+  
+  NumericVector atr(price_vector_size);
+  
+   for(int i = 0; i < period; ++i)
+  {
+    atr[period - 1] += tr[i]; 
+  }
+  
+  atr[period - 1] = atr[period - 1]/period;
+  
+  //cout<<"atr[period-1]"<<atr[period-1]<<endl;
+  
+  for(int i = period; i < price_vector_size; ++i)
+  {
+    atr[i] = (atr[i-1]*(period-1) + tr[i])/period;
+  }
+  
+  return atr;
+}
+
+
+//TODO : Need to code this after understanding mql robinson article
+/*
+NumericVector SuperTrend(NumericVector High_vector, NumericVector Low_vector, NumericVector Close_vector, double multiplier, int period){
+  
+  //http://www.forexfactory.com/showthread.php?t=329399
+  //http://kolier.li/indicator/how-supertrend-mq4-works-logic-of-supertrend-indicator-created-by-jason-robinson-jnrtradin
+  //https://www.mql5.com/en/code/7816
+  //https://tradingresearch.wordpress.com/2011/08/15/evaluation-of-super-trend-indicator%E2%80%99s-parameters-for-all-major-forex-pairs-over-12-years/
+    
+  int price_vector_size = High_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  NumericVector atr(price_vector_size);
+   
+  atr = ATR(High_vector, Low_vector, Close_vector, period);
+  
+  NumericVector UpperLevel(price_vector_size); 
+  NumericVector LowerLevel(price_vector_size);   
+  
+   for (int i = period-1; i < price_vector_size; ++i)
+  {
+   UpperLevel[i] = .5*(High_vector[i] + Low_vector[i]) - multiplier*atr[i];
+   LowerLevel[i] = .5*(High_vector[i] + Low_vector[i]) + multiplier*atr[i];
+  }
+  
+  return atr;
+}
+*/
+
+// [[Rcpp::export]]
+NumericVector IBS(NumericVector High_vector, NumericVector Low_vector, NumericVector Close_vector){
+  
+  //http://qusma.com/2012/12/19/ibs-and-relative-value-mean-reversion/
+  //http://jonathankinlay.com/2016/06/the-internal-bar-strength-indicator/
+  //http://systemtradersuccess.com/internal-bar-strength-indicator/
+  //https://www.tradingview.com/script/ZTnKxBPz-Internal-Bar-Strength-Indicator-Reversion-system/
+  //http://qusma.com/wp-content/uploads/2013/09/The-IBS-Effect-Mean-Reversion-in-Equity-ETFs.pdf
+  //http://www.naaim.org/wp-content/uploads/2014/04/00V_Alexander_Pagonidis_The-IBS-Effect-Mean-Reversion-in-Equity-ETFs-1.pdf
+   
+  int price_vector_size = High_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+   NumericVector ibs(price_vector_size);
+  
+   for (int i = 0; i < price_vector_size; ++i)
+  {
+   ibs[i] = (Close_vector[i] -  Low_vector[i])/(High_vector[i] - Low_vector[i]);
+  }
+  
+  return ibs;
+}
+
+// [[Rcpp::export]]
+NumericVector ROC(NumericVector price_vector, int period){
+  
+  //http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:rate_of_change_roc_and_momentum
+ 
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+   NumericVector roc(price_vector_size);
+  
+   for (int i = period; i < price_vector_size; ++i)
+  {
+   roc[i] = 100*(price_vector[i] -  price_vector[i-period])/price_vector[i-period];
+  }
+  
+  return roc;
+}
+
+// [[Rcpp::export]]
+NumericVector VROC(NumericVector volume_vector, int period){
+  
+  //http://www.investopedia.com/articles/technical/02/091002.asp
+  //https://ta.mql4.com/indicators/volumes/rate_of_change
+
+  int volume_vector_size = volume_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > volume_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+
+   NumericVector vroc(volume_vector_size);
+  
+   for (int i = period; i < volume_vector_size; ++i)
+  {
+   vroc[i] = 100*(volume_vector[i] -  volume_vector[i-period])/volume_vector[i-period];
+  }
+  
+  return vroc;
+}
+
+  
+NumericVector PlusDirectionalMovement(NumericVector High_vector, NumericVector Low_vector){
+  
+  int price_vector_size = High_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  NumericVector plus_directional_movement(price_vector_size);
+  
+   for (int i = 1; i < price_vector_size; ++i)
+  {
+   plus_directional_movement[i] = ((High_vector[i] - High_vector[i-1]) > (Low_vector[i-1] - Low_vector[i]))?(max((High_vector[i] - High_vector[i-1]),0.0)):0.0;
+  }
+  return plus_directional_movement;
+}
+
+NumericVector MinusDirectionalMovement(NumericVector High_vector, NumericVector Low_vector){
+  
+  int price_vector_size = High_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  NumericVector minus_directional_movement(price_vector_size);
+  
+   for (int i = 1; i < price_vector_size; ++i)
+  {
+   minus_directional_movement[i] = ((Low_vector[i-1] - Low_vector[i]) > (High_vector[i] - High_vector[i-1]))?(max((Low_vector[i-1] - Low_vector[i]),0.0)):0.0;
+  }
+  return minus_directional_movement;
+}
+
+// [[Rcpp::export]]
+NumericVector ADX(NumericVector High_vector, NumericVector Low_vector, NumericVector Close_vector, int period){
+  
+  //http://www.investopedia.com/articles/technical/02/091002.asp
+  //https://ta.mql4.com/indicators/volumes/rate_of_change
+
+  int price_vector_size = High_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+      
+  NumericVector tr(price_vector_size);
+  
+  tr[0] = fabs(High_vector[0] - Low_vector[0]);
+  
+   for (int i = 1; i < price_vector_size; ++i)
+  {
+    tr[i] = max(fabs(High_vector[i] - Low_vector[i]), max(fabs(High_vector[i] - Close_vector[i-1]), fabs(Low_vector[i] - Close_vector[i-1])));
+    //cout<<" "<<tr[i];
+  }
+  
+  NumericVector plus_directional_movement = PlusDirectionalMovement(High_vector, Low_vector);
+  
+  NumericVector minus_directional_movement = MinusDirectionalMovement(High_vector, Low_vector);
+
+  NumericVector smoothed_tr_over_period(price_vector_size);
+  NumericVector smoothed_plus_directional_movement_over_period(price_vector_size);
+  NumericVector smoothed_minus_directional_movement_over_period(price_vector_size);
+  
+   for(int i = 1; i <= period; ++i)
+  {
+    smoothed_tr_over_period[period] += tr[i];
+    smoothed_plus_directional_movement_over_period[period] += plus_directional_movement[i];
+    smoothed_minus_directional_movement_over_period[period] += minus_directional_movement[i];  
+  }
+  
+   for(int i = period + 1; i < price_vector_size; ++i)
+  {
+    smoothed_tr_over_period[i] = (smoothed_tr_over_period[i-1] - smoothed_tr_over_period[i-1]/period) + tr[i];
+    smoothed_plus_directional_movement_over_period[i] = (smoothed_plus_directional_movement_over_period[i-1] - smoothed_plus_directional_movement_over_period[i-1]/period) + plus_directional_movement[i];
+    smoothed_minus_directional_movement_over_period[i] = (smoothed_minus_directional_movement_over_period[i-1] - smoothed_minus_directional_movement_over_period[i-1]/period) + minus_directional_movement[i];
+  }
+
+  NumericVector plus_directional_indicator(price_vector_size);
+  NumericVector minus_directional_indicator(price_vector_size);
+  NumericVector diff_plus_minus_directional_indicator(price_vector_size);
+  NumericVector sum_plus_minus_directional_indicator(price_vector_size);
+  NumericVector directional_index(price_vector_size);
+  NumericVector average_directional_index(price_vector_size);
+
+   for(int i = period; i < price_vector_size; ++i)
+  {
+    plus_directional_indicator[i] = 100*(smoothed_plus_directional_movement_over_period[i]/smoothed_tr_over_period[i]);
+    minus_directional_indicator[i] = 100*(smoothed_minus_directional_movement_over_period[i]/smoothed_tr_over_period[i]);
+    diff_plus_minus_directional_indicator[i] = fabs(plus_directional_indicator[i] - minus_directional_indicator[i]);
+    sum_plus_minus_directional_indicator[i] = plus_directional_indicator[i] + minus_directional_indicator[i];
+    directional_index[i] = 100*(diff_plus_minus_directional_indicator[i]/sum_plus_minus_directional_indicator[i]);
+  }
+
+   for(int i = period; i <= 2*period - 1; ++i)
+  {
+    average_directional_index[2*period-1] += directional_index[i];
+  }
+   average_directional_index[2*period-1] = average_directional_index[2*period-1]/period;
+
+   for(int i = 2*period; i < price_vector_size; ++i)
+  {
+    average_directional_index[i] = (13*average_directional_index[i-1] + directional_index[i])/14;
+  }
+  
+ return average_directional_index;
+}
+
+
+/*
+#######################################################################################################
+   ########################################Strategies##############################################
+#######################################################################################################
+*/
+
+// [[Rcpp::export]]
+NumericVector DoubleSMACrossoverStrategy(NumericVector price_vector, int period_short, int period_long)
+{
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period_short > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  NumericVector signal(price_vector_size);
+  
+  NumericVector sma_short = SMA(price_vector, period_short);
+  NumericVector sma_long = SMA(price_vector, period_long);
+  
+  for(int i = period_long; i < price_vector_size; ++i){
+  signal[i]=((sma_short[i-1] < sma_long[i-1]) & (sma_short[i] > sma_long[i]))? 1:(((sma_short[i-1] > sma_long[i-1]) & (sma_short[i] < sma_long[i]))?-1:0);
+  }
+  return signal;
+}
+
+// [[Rcpp::export]]
+NumericVector DoubleEMACrossoverStrategy(NumericVector price_vector, int period_short, int period_long)
+{
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period_short > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  NumericVector signal(price_vector_size);
+  
+  NumericVector ema_short = EMA(price_vector, period_short);
+  NumericVector ema_long = EMA(price_vector, period_long);
+  
+  for(int i = period_long; i < price_vector_size; ++i){
+  signal[i]=((ema_short[i-1] < ema_long[i-1]) & (ema_short[i] > ema_long[i]))? 1:(((ema_short[i-1] > ema_long[i-1]) & (ema_short[i] < ema_long[i]))?-1:0);
+  }
+  return signal;
+}
+
+// [[Rcpp::export]]
+NumericVector TripleSMACrossoverStrategy(NumericVector price_vector, int period_short, int period_medium, int period_long)
+{
+ //http://www.forexfactory.com/showthread.php?t=268038
+ //Triple EMA strategy : http://www.marketcalls.in/amibroker/simple-triple-moving-average-crossover-amibroker-afl-code.html
+
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period_short > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  NumericVector signal(price_vector_size);
+  
+  NumericVector sma_short = SMA(price_vector, period_short);
+  NumericVector sma_medium = SMA(price_vector, period_medium);
+  NumericVector sma_long = SMA(price_vector, period_long);
+  
+  for(int i = period_long; i < price_vector_size; ++i){
+  signal[i]=(((sma_short[i-1] < sma_medium[i-1]) & (sma_medium[i-1] < sma_long[i-1])) & ((sma_short[i] > sma_medium[i]) & (sma_medium[i] > sma_long[i])))? 1:((((sma_short[i-1] > sma_medium[i-1]) & (sma_medium[i-1] > sma_long[i-1])) & ((sma_short[i] < sma_medium[i]) & (sma_medium[i] < sma_long[i])))?-1:0);
+  }
+  return signal;
+}
+
+// [[Rcpp::export]]
+NumericVector TripleEMACrossoverStrategy(NumericVector price_vector, int period_short, int period_medium, int period_long)
+{
+ //http://www.forexfactory.com/showthread.php?t=268038
+ //Triple EMA strategy : http://www.marketcalls.in/amibroker/simple-triple-moving-average-crossover-amibroker-afl-code.html
+
+  int price_vector_size = price_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (period_short > price_vector_size) { throw std::invalid_argument("period too small for vector size"); } // period can't be greater than the length of data itself
+
+  NumericVector signal(price_vector_size);
+  
+  NumericVector ema_short = EMA(price_vector, period_short);
+  NumericVector ema_medium = EMA(price_vector, period_medium);
+  NumericVector ema_long = EMA(price_vector, period_long);
+  
+  for(int i = period_long; i < price_vector_size; ++i){
+  signal[i]=(((ema_short[i-1] < ema_medium[i-1]) & (ema_medium[i-1] < ema_long[i-1])) & ((ema_short[i] > ema_medium[i]) & (ema_medium[i] > ema_long[i])))? 1:((((ema_short[i-1] > ema_medium[i-1]) & (ema_medium[i-1] > ema_long[i-1])) & ((ema_short[i] < ema_medium[i]) & (ema_medium[i] < ema_long[i])))?-1:0);
+  }
+  return signal;
+}
+
+// [[Rcpp::export]]
+NumericMatrix TradeSheet(NumericVector Symbols_vector, NumericVector DateTime_vector, NumericVector Open_vector, NumericVector High_vector, NumericVector Low_vector, NumericVector Close_vector, NumericVector Volume_vector, NumericVector Time_since_BOD, NumericVector Time_till_EOD)
+{
+  int price_vector_size = Close_vector.size(); //This is the number of actual objects held in the vector, which is not necessarily equal to its storage capacity.
+
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (!((DateTime_vector.size() == Open_vector.size()) &&  (DateTime_vector.size() == High_vector.size()) &&  (DateTime_vector.size() == Low_vector.size()) &&  (DateTime_vector.size() == Close_vector.size()))) { throw std::invalid_argument("The vectors are not of equal size"); } // the Date,O,H,L,C vectors have to be of equal length
+
+  int period_short = 6, period_long = 9;
+  
+  //signal is signal at period end
+  NumericVector signal = DoubleSMACrossoverStrategy(Close_vector, period_short, period_long);
+  
+  //prev_position is position at beginning of period
+  NumericVector prev_position(price_vector_size);
+  //position is position at period end
+  NumericVector position(price_vector_size);
+  //entry_time is entry time at period end
+  NumericVector entry_time(price_vector_size);
+  //exit_time is exit time at period end
+  NumericVector exit_time(price_vector_size);
+  //exit_time is entry price at period end
+  NumericVector entry_price(price_vector_size);
+  //exit_price is exit price at period end
+  NumericVector exit_price(price_vector_size);  
+  //trade_return is trade return at period end
+  NumericVector trade_return(price_vector_size);
+  
+  double units_since_trade_entry = 0;
+  double bar_size = 0;
+  
+   for(int i = period_long - 1; i < price_vector_size; ++i) //DoubleSMACrossoverStrategy signal will be populated from subscript period onwards
+  {
+    prev_position[i] = position[i-1];
+
+    if(prev_position[i] == 0)
+    {
+      if((signal[i] == 1) & (Time_since_BOD[i] > 15)){
+        position[i] = 1;
+        entry_time[i] = DateTime_vector[i];
+        entry_price[i] = Close_vector[i];
+        units_since_trade_entry = 0;
+      } else if((signal[i] == -1) & (Time_since_BOD[i] > 15)){
+        position[i] = -1;
+        entry_time[i] = DateTime_vector[i];
+        entry_price[i] = Close_vector[i];
+        units_since_trade_entry = 0;
+      }
+    } else if(prev_position[i] == 1)    {
+      units_since_trade_entry = units_since_trade_entry + bar_size;
+      entry_time[i] = entry_time[i-1];
+      entry_price[i] = entry_price[i-1];
+      position[i] = prev_position[i];
+
+      if(signal[i] == -1){
+        position[i] = 0;
+        exit_time[i] = DateTime_vector[i];
+        exit_price[i] = Close_vector[i];
+        trade_return[i] = (exit_price[i] - entry_price[i])/entry_price[i];
+      }
+    } else if(prev_position[i] == -1)   {
+      units_since_trade_entry = units_since_trade_entry + bar_size;
+      entry_time[i] = entry_time[i-1];
+      entry_price[i] = entry_price[i-1];
+      position[i] = prev_position[i];
+
+       if(signal[i] == 1){
+        position[i] = 0;
+        exit_time[i] = DateTime_vector[i];
+        exit_price[i] = Close_vector[i];
+        trade_return[i] = -1*(exit_price[i] - entry_price[i])/entry_price[i];
+      }
+    }
+  }
+
+  NumericMatrix trade_sheet(price_vector_size, 10);
+
+  for(int i = 0; i < price_vector_size; ++i)
+  {
+    trade_sheet(i, 0) = Symbols_vector[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 1) = DateTime_vector[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 2) = signal[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 3) = prev_position[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 4) = position[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 5) = entry_time[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 6) = exit_time[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 7) = entry_price[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 8) = exit_price[i]; //round brackets with NumericMatrix
+    trade_sheet(i, 9) = trade_return[i]; //round brackets with NumericMatrix
+  }
+  
+  return trade_sheet;
+}
+
+
+//Connor's RSI
+//http://www.marketcalls.in/amibroker/larry-connors-rsi-amibroker-afl-code.html
+//https://www.tradingview.com/stock-charts-support/index.php/Connors_RSI_(CRSI)
+
+//ADX : 
+
+//SMI (a version of Stochastic Oscillator) : http://www.investopedia.com/ask/answers/021315/what-difference-between-stochastic-oscillator-stochastic-momentum-index.asp
+
+//Donchian Channel :
+
+//Bollinger Bands :
+
+// [[Rcpp::export]]
+NumericMatrix StocksLooper(NumericVector Symbols_vector, NumericVector DateTime_vector, NumericVector Open_vector, NumericVector High_vector, NumericVector Low_vector, NumericVector Close_vector, NumericVector Volume_vector, NumericVector Time_since_BOD_vector, NumericVector Time_till_EOD_vector, NumericVector start, NumericVector end)
+{
+  //http://stackoverflow.com/questions/8480640/how-to-throw-a-c-exception -- throw statement
+  if (!((DateTime_vector.size() == Open_vector.size()) &&  (DateTime_vector.size() == High_vector.size()) &&  (DateTime_vector.size() == Low_vector.size()) &&  (DateTime_vector.size() == Close_vector.size()) &&  (DateTime_vector.size() == Volume_vector.size()) &&  (DateTime_vector.size() == Time_since_BOD_vector.size()) &&  (DateTime_vector.size() == Time_till_EOD_vector.size()))) { throw std::invalid_argument("The vectors are not of equal size"); } // the Date,O,H,L,C,V vectors have to be of equal length
+
+ int start_vector_size = start.size();
+ //cout<<"start_vector_size : "<<start_vector_size<<endl;
+ 
+ //cout<<start_vector_size;
+ cout.precision(17);
+ 
+ arma::mat cursec_trade_sheet;
+ arma::mat stocks_trade_sheet;
+
+ for(int i = 0; i < start_vector_size; ++i)
+ {
+   //Subsetting the full data vectors to just select the rows for particular security
+   //Need to do start[i] - 1 as the C++ cusbscripts start from 0 whereas in R it starts from 1
+   //end[i] instead of end[i] - 1 is fine as anyway the address just before end[i] will be picked
+   NumericVector cursec_Symbols(&Symbols_vector[start[i] - 1], &Symbols_vector[end[i]]);
+   NumericVector cursec_DateTime(&DateTime_vector[start[i] - 1], &DateTime_vector[end[i]]);
+   NumericVector cursec_Open(&Open_vector[start[i] - 1], &Open_vector[end[i]]);
+   NumericVector cursec_High(&High_vector[start[i] - 1], &High_vector[end[i]]);
+   NumericVector cursec_Low(&Low_vector[start[i] - 1], &Low_vector[end[i]]);
+   NumericVector cursec_Close(&Close_vector[start[i] - 1], &Close_vector[end[i]]);
+   NumericVector cursec_Volume(&Volume_vector[start[i] - 1], &Volume_vector[end[i]]);
+   NumericVector cursec_Time_since_BOD(&Time_since_BOD_vector[start[i] - 1], &Time_since_BOD_vector[end[i]]);
+   NumericVector cursec_Time_till_EOD(&Time_till_EOD_vector[start[i] - 1], &Time_till_EOD_vector[end[i]]);
+   //cout<<"New:"<<endl<<*Symbols.begin()<<" "<<*(Symbols.end()-1)<<endl;
+   //int cursec_DateTime_size = cursec_DateTime.size();
+   //cout<<endl<<cursec_DateTime_size<<" "<<cursec_DateTime[0]<<" "<<cursec_DateTime[cursec_DateTime_size-1]<<endl;
+ 
+   //https://github.com/petewerner/misc/wiki/RcppArmadillo-cheatsheet
+   //arma::vec arma_vec_cursec_Symbols = as<arma::vec>(cursec_Symbols);
+   
+   //converting to rcpparmadillo matrix so that join_cols function can be used to append with stocks_trade_sheet matrix. The rcpp NumericMatrix does not have straightforward append capability.
+   cursec_trade_sheet = as<arma::mat>(TradeSheet(cursec_Symbols, cursec_DateTime, cursec_Open, cursec_High, cursec_Low, cursec_Close, cursec_Volume, cursec_Time_since_BOD, cursec_Time_till_EOD));
+   //cursec_trade_sheet.insert_cols(cursec_trade_sheet.n_cols, arma_vec_cursec_Symbols);
+   
+   //rcpparmadillo version of rbind (appending 2 matrices vertically)
+   stocks_trade_sheet = join_cols(stocks_trade_sheet, cursec_trade_sheet);
+ }
+ 
+ //cout<<endl<<start[start_vector_size-1];
+ 
+ //wrap converts both rcpparmadillo(ex- arma::mat) and C++(ex- vector<double>) data structures to their equivalent rcpp structures (NumericMatrix or NumericVectors)
+ return wrap(stocks_trade_sheet);
+}
+
+
+/*** R
+library(zoo)
+library(xts)
+
+#StocksData <- readRDS("C:/Users/IshanC/Desktop/CVBCRB/Input/StocksData.rds")
+StocksData <- readRDS("C:/Users/IshanC/Desktop/CVBCRB/TPX100_constminvol_10d_0.01.rds")
+#StocksData <- readRDS("C:/Users/IshanC/Desktop/test.rds")
+
+#To create start and end row numbers for each stock in the data
+start <- which(StocksData[,1] != c(0,StocksData[-nrow(StocksData),1]))
+end <- start - 1
+end <- c(end[-1], nrow(StocksData))
+
+system.time(trade_sheet <- StocksLooper(StocksData$Symbols, StocksData$DateTimeNum, StocksData$Open, StocksData$High, StocksData$Low, StocksData$Close, StocksData$Volume, StocksData$Time_since_BOD, StocksData$Time_till_EOD, start, end))
+#cursec <- readRDS("C:/Users/IshanC/Desktop/test.rds")
+#trade_sheet <- TradeSheet(cursec$Symbols, cursec$DateTimeNum, cursec$Open, cursec$High, cursec$Low, cursec$Close, cursec$Volume, cursec$Time_since_BOD, cursec$Time_till_EOD)
+#colnames(trade_sheet) <- c("Symbols", "DateTime", "Signal", "Prev_Position", "Position", "Entry_Time", "Exit_Time", "Entry_Price", "Exit_Price", "Trade_Return")
+#trade_sheet <- data.table(trade_sheet)
+#trade_sheet$DateTime <- as.POSIXct(trade_sheet$DateTime, origin='1970-01-01')
+sma=SMA(cursec$Close, 9)
+sma_signal  = DoubleSMACrossoverStrategy(cursec$Close, 6, 9)
+#trade_sheet <- TradeSheet(cursec$Symbols, cursec$DateTimeNum, cursec$Open, cursec$High, cursec$Low, cursec$Close, cursec$Volume, cursec$Time_since_BOD, cursec$Time_till_EOD)
+write.table(trade_sheet, append = FALSE, file="C:/Users/IshanC/Desktop/trade_sheet.csv", sep = ",",  row.names=FALSE)
+
+cursec <- StocksData[start[67]:end[67],]
+cursec_trade_sheet <- trade_sheet[start[67]:end[67],]
+write.table(cursec, append = FALSE, file="C:/Users/IshanC/Desktop/cursec.csv", sep = ",",  row.names=FALSE)
+write.table(cursec_trade_sheet , append = FALSE, file="C:/Users/IshanC/Desktop/cursec_trade_sheet.csv", sep = ",",  row.names=FALSE)
+sma=SMA(cursec$Close, 9)
+write.table(sma , append = FALSE, file="C:/Users/IshanC/Desktop/sma.csv", sep = ",",  row.names=FALSE)
+sma_signal  = DoubleSMACrossoverStrategy(cursec$Close, 6, 9)
+write.table(sma_signal , append = FALSE, file="C:/Users/IshanC/Desktop/sma_signal.csv", sep = ",",  row.names=FALSE)
+
+
+if(FALSE){
+for(i in 1:length(start)){
+cursec <- StocksData[start[i]:end[i],]
+#print(head(cursec))
+trade_sheet <- TradeSheet(cursec$Symbols, cursec$DateTimeNum, cursec$Open, cursec$High, cursec$Low, cursec$Close, cursec$Volume, cursec$Time_since_BOD, cursec$Time_till_EOD)
+ }
+}
+
+if(FALSE){
+system.time(
+cursec <- StocksData[start[1]:end[1],]
+)
+trade_sheet <- TradeSheet(cursec$Symbols, cursec$DateTimeNum, cursec$Open, cursec$High, cursec$Low, cursec$Close, cursec$Volume, cursec$Time_since_BOD, cursec$Time_till_EOD)
+}
+
+if(FALSE){
+aaa<-StocksLooper(StocksData$Symbols, StocksData$DateTimeNum, StocksData$Open, StocksData$High, StocksData$Low, StocksData$Close, StocksData$Volume, StocksData$Time_since_BOD, StocksData$Time_till_EOD, start, end)
+bbb <- data.frame(aaa)
+head(bbb)
+system.time(bbb$X2 <- as.POSIXct(bbb$X2, origin='1970-01-01'))
+bbb$X6[bbb$X6 == 0] <- NA
+bbb$X7[bbb$X7 == 0] <- NA
+
+bbb$X6 <- as.POSIXct(bbb$X6, origin='1970-01-01')
+bbb$X7 <- as.POSIXct(bbb$X7, origin='1970-01-01')
+
+system.time(expt<-year(as.POSIXlt(bbb$X6))) #Converting to POSIXlt as year can be easily extracted using year() function on POSIXlt and it taken < 1 sec
+bbb$expt1<-expt 
+system.time(rowsum(bbb$X10, expt))
+}
+
+#system.time(aggregate(bbb$X1, by=list(bbb$X9), FUN=sum))
+#system.time(rowsum(bbb$X1, bbb$X9))
+*/
+
+/*
+given_date <- "23-01-2014"
+
+plot_chart <- function(given_date)
+{
+  windows()
+  row_for_given_date <- which(unique(JNIc1_future_1min$Date) == given_date)
+  previous_date <- unique(JNIc1_future_1min$Date)[row_for_given_date-1]
+  plot_data <- JNIc1_future_1min[(JNIc1_future_1min$Date %in% c(previous_date, given_date)),]
+  head(plot_data)
+  tail(plot_data)
+  plot(x=factor(plot_data$DateTime), y=plot_data$Open)
+  first_obs_for_given_date <- which(JNIc1_future_1min$Date == given_date)[1]
+  entry.datetime.inserted <- as.POSIXct(paste(given_date, Trade_matrix[which(Trade_matrix$DateTokyo == given_date),]$Trade_Entry_Time), format = "%d-%m-%Y %H:%M:%S", tz="Asia/Tokyo")
+  exit.datetime.inserted <- as.POSIXct(paste(given_date, Trade_matrix[which(Trade_matrix$DateTokyo == given_date),]$Trade_Exit_Time), format = "%d-%m-%Y %H:%M:%S", tz="Asia/Tokyo")
+  s1=which(plot_data$DateTime == entry.datetime.inserted)
+  s2=which(plot_data$DateTime == exit.datetime.inserted)
+  abline(v=s1,col=2)
+  abline(v=s2,col=3)
+}
+*/
+
+/*
+
+######################
+###Indicators strategy###
+######################
+
+
+##Larry William's VIX Fix##
+#http://www.technicalanalyst.co.uk/2015/03/the-vix-fix/
+#https://www.ireallytrade.com/newsletters/VIXFix.pdf
+#https://www.tradingview.com/chart/GC1!/bxaCH5Hx-Great-Confirming-Indicator-For-The-Williams-Vix-Fix/
+#http://www.profitabletrading.com/stocks-etfs/buy/vix-fix-indicator-applies-cboe-volatility-index-stocks-etfs
+#http://www.marketcalls.in/amibroker/william-vix-fix-indicator-amibroker-afl-code.html
+#http://www.profitabletrading.com/education/technical-indicators/amber-hestla-income-trader-volatility-itv-indicator
+WilliamsVixFix <- function(SecNum, P1){
+ #P1 is typically 22 due to 22 trading days in a month
+ HLOCV <- as.zoo(HLOCV)
+ Highest_Close_Last_P1 <- as.xts(rollapplyr(HLOCV[,"Close"], P1, max, fill=NA, na.rm=TRUE)) 
+ WVF <- 100*(coredata(Highest_Close_Last_P1) - coredata(HLOCV[, "Close"]))/coredata(Highest_Close_Last_P1)
+ WVF <- as.xts(WVF, order.by = index(HLOCV))
+ MA_WVF <- SMA(WVF, P1)
+ EntrySignal <- ifelse(WVF > MA_WVF, 1, ifelse(WVF < MA_WVF, -1, 0))
+}
+
+Strategy:
+1.Super Trend Indicator 7,3 (Supertrend gives less false signals in sideways market than MAs)
+2.Stochastic like RSI or CCI
+3.ATR 14 period
+Buy:
+  1.SuperTrend should be in a bullish mode in 30 min chart
+2.Entry should be taken on Stochastic crossover in oversold territory on a a5 min chart
+3.Stop loss should be 1.5 times the ATR based on 5 min chart
+4.Profit target: Price reaches 3 times the stop loss
+Sell:
+1.Supertrend should be in a bearish mode in 30 min chart
+2.Entry should be taken on Stochastic crossover in oversold territory on a a5 min chart
+3.Stop loss should be 1.5 times the ATR based on 5 min chart
+4.Exit strategy is Opposite of the buying one above
+
+#Search : combining trend following & mean reverting strategies - Traderji.com
+#VWAP : https://www.quora.com/What-are-the-most-reliable-stock-chart-indicators
+*/
